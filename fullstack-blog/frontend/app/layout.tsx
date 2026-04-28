@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { Toaster } from 'react-hot-toast';
 import './globals.css';
+import Providers from './providers';
+
 
 export const metadata: Metadata = {
   title: 'Fullstack Blog',
@@ -15,8 +17,10 @@ export default function RootLayout({
   return (
     <html lang="vi">
       <body>
-        {children}
-        <Toaster position="top-right" />
+        <Providers>
+          {children}
+          <Toaster position="top-right" />
+        </Providers>
       </body>
     </html>
   );

@@ -1,5 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 
@@ -12,60 +13,72 @@ interface Post {
 }
 
 export default function PostsPage() {
-  const [posts, setPosts] = useState<Post[]>([]);
+  const queryClient = useQueryClient();
+
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [author, setAuthor] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  // State cho chức năng sửa
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [editAuthor, setEditAuthor] = useState('');
 
-  const fetchPosts = async () => {
-    try {
-      const res = await api.get('/api/posts');
-      setPosts(res.data);
-    } catch {
-      toast.error('Không thể kết nối server!');
-    }
-  };
+  // useQuery: tự fetch + cache danh sách bài viết
+  const { data: posts = [], isLoading, isError } = useQuery<Post[]>({
+    queryKey: ['posts'],
+    queryFn: () => api.get('/api/posts').then(r => r.data),
+  });
 
-  useEffect(() => { fetchPosts(); }, []);
-
-  // Đăng bài mới
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await api.post('/api/posts', { title, content, author });
+  // Mutation: đăng bài mới
+  const createMutation = useMutation({
+    mutationFn: (data: { title: string; content: string; author: string }) =>
+      api.post('/api/posts', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] });
       toast.success('Đăng bài thành công!');
       setTitle(''); setContent(''); setAuthor('');
-      fetchPosts();
-    } catch (err: unknown) {
+    },
+    onError: (err: unknown) => {
       const axiosErr = err as { response?: { data?: { error?: string } } };
       toast.error(axiosErr.response?.data?.error || 'Đăng bài thất bại!');
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+  });
 
-  // Xoá bài
-  const handleDelete = async (id: number) => {
-    if (!confirm('Bạn chắc chắn muốn xoá bài viết này?')) return;
-    try {
-      await api.delete(`/api/posts/${id}`);
-      setPosts(prev => prev.filter(p => p.id !== id));
+  // Mutation: xoá bài
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/api/posts/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] });
       toast.success('Đã xoá bài viết');
-    } catch {
-      toast.error('Xoá thất bại, thử lại!');
-      fetchPosts();
-    }
+    },
+    onError: () => toast.error('Xoá thất bại, thử lại!'),
+  });
+
+  // Mutation: sửa bài
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: {
+      id: number;
+      data: { title: string; content: string; author: string }
+    }) => api.put(`/api/posts/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] });
+      toast.success('Cập nhật thành công!');
+      handleEditCancel();
+    },
+    onError: () => toast.error('Cập nhật thất bại!'),
+  });
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    createMutation.mutate({ title, content, author });
   };
 
-  // Mở form sửa
+  const handleDelete = (id: number) => {
+    if (!confirm('Bạn chắc chắn muốn xoá bài viết này?')) return;
+    deleteMutation.mutate(id);
+  };
+
   const handleEditClick = (post: Post) => {
     setEditingPost(post);
     setEditTitle(post.title);
@@ -73,101 +86,119 @@ export default function PostsPage() {
     setEditAuthor(post.author);
   };
 
-  // Huỷ sửa
   const handleEditCancel = () => {
     setEditingPost(null);
     setEditTitle(''); setEditContent(''); setEditAuthor('');
   };
 
-  // Submit sửa
-  const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleEditSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingPost) return;
-    try {
-      await api.put(`/api/posts/${editingPost.id}`, {
-        title: editTitle,
-        content: editContent,
-        author: editAuthor,
-      });
-      toast.success('Cập nhật thành công!');
-      setPosts(prev => prev.map(p =>
-        p.id === editingPost.id
-          ? { ...p, title: editTitle, content: editContent, author: editAuthor }
-          : p
-      ));
-      handleEditCancel();
-    } catch {
-      toast.error('Cập nhật thất bại!');
-    }
+    editMutation.mutate({
+      id: editingPost.id,
+      data: { title: editTitle, content: editContent, author: editAuthor },
+    });
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 text-black"> {/* Thêm text-black ở đây để làm màu mặc định */}
-      <h1 className="text-2xl font-bold mb-6 text-black">📝 Quản lý bài viết</h1>
+    <div className="max-w-2xl mx-auto p-6 text-slate-900"> {/* Ép màu chữ mặc định toàn trang là đen xám đậm */}
+      <h1 className="text-3xl font-extrabold mb-8 text-black flex items-center gap-2">
+        <span>📝</span> Quản lý bài viết
+      </h1>
 
       {/* Form đăng bài mới */}
-      <form onSubmit={handleSubmit} className="bg-white border rounded-lg p-4 mb-6 space-y-3 shadow-sm text-black">
-        <h2 className="font-semibold text-lg text-black">Đăng bài mới</h2>
-        <input
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="Tiêu đề"
-          required
-          className="w-full border border-gray-300 bg-white rounded px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400"
-        />
-        <textarea
-          value={content}
-          onChange={e => setContent(e.target.value)}
-          placeholder="Nội dung"
-          required
-          rows={3}
-          className="w-full border border-gray-300 bg-white rounded px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400"
-        />
-        <input
-          value={author}
-          onChange={e => setAuthor(e.target.value)}
-          placeholder="Tác giả"
-          required
-          className="w-full border border-gray-300 bg-white rounded px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400"
-        />
+      <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-xl p-6 mb-8 space-y-4 shadow-md text-black">
+        <h2 className="font-bold text-xl text-black border-b pb-2">Đăng bài mới</h2>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold text-slate-500 uppercase">Tiêu đề</label>
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="Nhập tiêu đề bài viết..."
+            required
+            className="w-full border border-slate-300 bg-white rounded-lg px-4 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold text-slate-500 uppercase">Nội dung</label>
+          <textarea
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            placeholder="Viết nội dung tại đây..."
+            required
+            rows={3}
+            className="w-full border border-slate-300 bg-white rounded-lg px-4 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold text-slate-500 uppercase">Tác giả</label>
+          <input
+            value={author}
+            onChange={e => setAuthor(e.target.value)}
+            placeholder="Tên người viết..."
+            required
+            className="w-full border border-slate-300 bg-white rounded-lg px-4 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400"
+          />
+        </div>
+
         <button
           type="submit"
-          disabled={loading}
-          className="bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white px-4 py-2 rounded text-sm font-medium"
+          disabled={createMutation.isPending}
+          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white py-2.5 rounded-lg text-sm font-bold transition-colors shadow-lg shadow-blue-200"
         >
-          {loading ? 'Đang đăng...' : 'Đăng bài'}
+          {createMutation.isPending ? '🚀 Đang xử lý...' : '➕ Đăng bài ngay'}
         </button>
       </form>
 
-      {/* Danh sách bài viết */}
-      <div className="space-y-3">
-        {posts.length === 0 && (
-          <p className="text-gray-500 text-center py-8">Chưa có bài viết nào.</p>
-        )}
-        {posts.map(p => (
-          <div key={p.id} className="border rounded-lg shadow-sm bg-white overflow-hidden text-black">
+      {/* Trạng thái loading / error */}
+      {isLoading && (
+        <div className="flex justify-center py-10">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      )}
 
-            {/* Chế độ xem bình thường */}
+      {isError && (
+        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-center font-medium">
+          ❌ Không thể tải bài viết! Vui lòng kiểm tra lại server.
+        </div>
+      )}
+
+      {/* Danh sách bài viết */}
+      <div className="space-y-4">
+        {!isLoading && posts.length === 0 && (
+          <div className="text-slate-400 text-center py-12 border-2 border-dashed rounded-xl">
+            📭 Chưa có bài viết nào được đăng.
+          </div>
+        )}
+
+        {posts.map(p => (
+          <div key={p.id} className="border border-slate-200 rounded-xl shadow-sm bg-white overflow-hidden transition-hover hover:shadow-md">
+
             {editingPost?.id !== p.id ? (
-              <div className="flex justify-between items-start p-4">
-                <div>
-                  {/* Chỉnh tiêu đề bài viết màu đen đậm */}
-                  <h3 className="font-bold text-base text-black">{p.title}</h3>
-                  {/* Chỉnh thông tin tác giả và nội dung bài viết */}
-                  <p className="text-sm text-gray-600">
-                    <span className="font-semibold text-black">{p.author}</span> · {p.content}
-                  </p>
+              /* Chế độ xem bình thường */
+              <div className="flex justify-between items-center p-5">
+                <div className="space-y-1">
+                  <h3 className="font-bold text-lg text-black leading-tight">{p.title}</h3>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-semibold text-xs">{p.author}</span>
+                    <span className="text-slate-400">•</span>
+                    <p className="text-slate-600">{p.content}</p>
+                  </div>
                 </div>
-                <div className="flex gap-2 ml-4 shrink-0">
+                <div className="flex gap-3 ml-4 shrink-0">
                   <button
                     onClick={() => handleEditClick(p)}
-                    className="text-blue-500 hover:text-blue-700 text-sm font-medium"
+                    className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm font-bold p-2 hover:bg-blue-50 rounded-lg transition-colors"
                   >
                     Sửa
                   </button>
                   <button
                     onClick={() => handleDelete(p.id)}
-                    className="text-red-500 hover:text-red-700 text-sm font-medium"
+                    disabled={deleteMutation.isPending}
+                    className="flex items-center gap-1 text-red-500 hover:text-red-700 text-sm font-bold p-2 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                   >
                     Xoá
                   </button>
@@ -175,38 +206,43 @@ export default function PostsPage() {
               </div>
             ) : (
               /* Chế độ inline edit */
-              <form onSubmit={handleEditSubmit} className="p-4 space-y-2 bg-blue-50">
-                <p className="text-xs text-blue-600 font-medium">✏️ Đang chỉnh sửa</p>
+              <form onSubmit={handleEditSubmit} className="p-5 space-y-3 bg-slate-50 border-l-4 border-blue-500">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-blue-700 font-bold flex items-center gap-1">✏️ Chỉnh sửa bài viết</p>
+                </div>
+
                 <input
                   value={editTitle}
                   onChange={e => setEditTitle(e.target.value)}
                   required
-                  className="w-full border border-gray-300 bg-white rounded px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-sm text-black focus:ring-2 focus:ring-blue-400 outline-none"
                 />
                 <textarea
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
                   required
                   rows={2}
-                  className="w-full border border-gray-300 bg-white rounded px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-sm text-black focus:ring-2 focus:ring-blue-400 outline-none"
                 />
                 <input
                   value={editAuthor}
                   onChange={e => setEditAuthor(e.target.value)}
                   required
-                  className="w-full border border-gray-300 bg-white rounded px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-sm text-black focus:ring-2 focus:ring-blue-400 outline-none"
                 />
-                <div className="flex gap-2">
+
+                <div className="flex gap-2 pt-1">
                   <button
                     type="submit"
-                    className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium"
+                    disabled={editMutation.isPending}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-bold shadow-md"
                   >
-                    Lưu
+                    {editMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
                   </button>
                   <button
                     type="button"
                     onClick={handleEditCancel}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm font-medium"
+                    className="bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 px-5 py-2 rounded-lg text-sm font-bold"
                   >
                     Huỷ
                   </button>
