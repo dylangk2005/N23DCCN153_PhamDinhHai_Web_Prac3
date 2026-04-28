@@ -91,4 +91,73 @@ app.delete('/api/posts/:id', async (req, res) => {
     }
 });
 
+// GET bình luận của 1 bài viết
+app.get('/api/posts/:id/comments', async (req, res) => {
+    try {
+        const postId = Number(req.params.id);
+        const data = await readData();
+        const post = data.find(p => p.id === postId);
+        if (!post)
+            return res.status(404).json({ error: 'Không tìm thấy bài viết' });
+
+        res.json(post.comments || []);
+    } catch {
+        res.status(500).json({ error: 'Không thể đọc bình luận' });
+    }
+});
+
+// POST thêm bình luận
+app.post('/api/posts/:id/comments', async (req, res) => {
+    try {
+        const postId = Number(req.params.id);
+        const { author, content } = req.body;
+        if (!author || !content)
+            return res.status(400).json({ error: 'Thiếu dữ liệu' });
+
+        const posts = await readData();
+        const index = posts.findIndex(p => p.id === postId);
+        if (index === -1)
+            return res.status(404).json({ error: 'Không tìm thấy bài viết' });
+
+        const newComment = {
+            id: Date.now(),
+            author,
+            content,
+            createdAt: new Date().toISOString()
+        };
+
+        if (!posts[index].comments) posts[index].comments = [];
+        posts[index].comments.push(newComment);
+        await writeData(posts);
+        res.status(201).json(newComment);
+    } catch {
+        res.status(500).json({ error: 'Không thể thêm bình luận' });
+    }
+});
+
+// DELETE xoá bình luận
+app.delete('/api/posts/:postId/comments/:commentId', async (req, res) => {
+    try {
+        const postId = Number(req.params.postId);
+        const commentId = Number(req.params.commentId);
+
+        const posts = await readData();
+        const postIndex = posts.findIndex(p => p.id === postId);
+        if (postIndex === -1)
+            return res.status(404).json({ error: 'Không tìm thấy bài viết' });
+
+        const comments = posts[postIndex].comments || [];
+        const commentIndex = comments.findIndex(c => c.id === commentId);
+        if (commentIndex === -1)
+            return res.status(404).json({ error: 'Không tìm thấy bình luận' });
+
+        comments.splice(commentIndex, 1);
+        posts[postIndex].comments = comments;
+        await writeData(posts);
+        res.json({ message: 'Đã xoá bình luận' });
+    } catch {
+        res.status(500).json({ error: 'Không thể xoá bình luận' });
+    }
+});
+
 app.listen(5000, () => console.log('✅ Backend chạy tại http://localhost:5000'));

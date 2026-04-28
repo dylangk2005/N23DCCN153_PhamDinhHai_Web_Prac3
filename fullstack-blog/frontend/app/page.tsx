@@ -1,8 +1,10 @@
 'use client';
+
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import Comments from './components/Comments';
 
 interface Post {
   id: number;
@@ -10,6 +12,12 @@ interface Post {
   content: string;
   author: string;
   createdAt?: string;
+  comments?: {
+    id: number;
+    author: string;
+    content: string;
+    createdAt: string;
+  }[];
 }
 
 export default function PostsPage() {
@@ -182,11 +190,18 @@ export default function PostsPage() {
               <div className="flex justify-between items-center p-5">
                 <div className="space-y-1">
                   <h3 className="font-bold text-lg text-black leading-tight">{p.title}</h3>
+
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-semibold text-xs">{p.author}</span>
+                    <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-semibold text-xs">
+                      {p.author}
+                    </span>
                     <span className="text-slate-400">•</span>
                     <p className="text-slate-600">{p.content}</p>
                   </div>
+
+                  <p className="text-xs text-slate-400 mt-1">
+                    {p.comments?.length || 0} bình luận
+                  </p>
                 </div>
                 <div className="flex gap-3 ml-4 shrink-0">
                   <button
@@ -249,6 +264,7 @@ export default function PostsPage() {
                 </div>
               </form>
             )}
+            <Comments postId={p.id} />
           </div>
         ))}
       </div>
